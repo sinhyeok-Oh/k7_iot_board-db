@@ -1,16 +1,20 @@
-# DROP DATABASE IF EXISTS `board_v1`;
+DROP DATABASE IF EXISTS `board_v1`;
 CREATE DATABASE IF NOT EXISTS `board_v1`
 	CHARACTER SET utf8mb4
     COLLATE utf8mb4_general_ci;
 USE `board_v1`;
 
-SET NAMES utf8mb4;				# 클라이언트와 MySQL 서버 간의 문자 인코딩 설정
-SET FOREIGN_KEY_CHECKS = 0;		# 외래 키 제약 조건 검사를 일시적으로 끄는 설정
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
 
 # === 기존 테이블 제거 === #
+DROP TABLE IF EXISTS post_files;
+DROP TABLE IF EXISTS file_infos;
+
 DROP TABLE IF EXISTS comments;
 DROP TABLE IF EXISTS board_likes;
 DROP TABLE IF EXISTS board_drafts;
+DROP TABLE IF EXISTS board_files;
 DROP TABLE IF EXISTS boards;
 DROP TABLE IF EXISTS board_categories;
 
@@ -19,8 +23,25 @@ DROP TABLE IF EXISTS user_roles;
 DROP TABLE IF EXISTS roles;
 DROP TABLE IF EXISTS users;
 
-# === USERS (사용자) === #
+# === FILE_INFO (파일 정보 테이블) === #
+CREATE TABLE file_infos (
+	id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    
+    original_name VARCHAR(255) NOT NULL COMMENT '원본 파일명',
+    stored_name VARCHAR(255) NOT NULL COMMENT 'UUID가 적용된 파일명',
+    content_type VARCHAR(255),
+    file_size BIGINT,
+    file_path VARCHAR(255) NOT NULL COMMENT '서버 내 실제 경로',
+    
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+)
+	ENGINE=InnoDB
+    DEFAULT CHARSET = utf8mb4
+    COLLATE = utf8mb4_unicode_ci
+    COMMENT = '파일 정보 테이블';
 
+
+# === USERS (사용자) === #
 CREATE TABLE users (
 	id BIGINT AUTO_INCREMENT PRIMARY KEY,
     
@@ -30,6 +51,7 @@ CREATE TABLE users (
     nickname VARCHAR(50) NOT NULL COMMENT '닉네임',
     
     gender VARCHAR(10) COMMENT '성별',
+    profile_file_id BIGINT NULL COMMENT '프로필 이미지 파일 ID',   -- 추가됨
     
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
@@ -37,14 +59,15 @@ CREATE TABLE users (
     CONSTRAINT `uk_users_username` UNIQUE(username),
     CONSTRAINT `uk_users_email` UNIQUE(email),
     CONSTRAINT `uk_users_nickname` UNIQUE(nickname),
-    CONSTRAINT `chk_users_gender` CHECK(gender IN ('MALE', 'FEMALE', 'OTHER', 'NONE'))
+    CONSTRAINT `chk_users_gender` CHECK(gender IN ('MALE', 'FEMALE', 'OTHER', 'NONE')),
+    CONSTRAINT `fk_users_profile_file` FOREIGN KEY (profile_file_id) REFERENCES file_infos(id) ON DELETE SET NULL  -- FK 추가됨
 )
 	ENGINE=InnoDB
     DEFAULT CHARSET = utf8mb4
     COLLATE = utf8mb4_unicode_ci
     COMMENT = '사용자 기본 정보 테이블';
 
--- ---- Seed: USERS (15명)
+-- Seed Users
 INSERT INTO users (username, password, email, nickname, gender, created_at, updated_at) VALUES
 ('admin', 'encrypted_pw', 'admin@site.com', '관리자', 'MALE', NOW(), NOW()),
 ('user01', 'pw01', 'user01@mail.com', '곰돌이1', 'MALE', NOW(), NOW()),
@@ -62,101 +85,71 @@ INSERT INTO users (username, password, email, nickname, gender, created_at, upda
 ('user13', 'pw13', 'user13@mail.com', '하마1', 'MALE', NOW(), NOW()),
 ('user14', 'pw14', 'user14@mail.com', '하마2', 'FEMALE', NOW(), NOW());
 
-# === ROLES (권한) === #
+# =====================
+# 3️⃣ 권한 / 매핑
+# =====================
 CREATE TABLE roles (
 	role_name VARCHAR(30) PRIMARY KEY,
     CONSTRAINT `chk_roles_role_name` CHECK(role_name IN ('ROLE_USER', 'ROLE_ADMIN', 'ROLE_MANAGER'))
 )
-	ENGINE=InnoDB
-    DEFAULT CHARSET = utf8mb4
-    COLLATE = utf8mb4_unicode_ci
-    COMMENT = '사용자 권한 테이블';
-    
+ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 INSERT INTO roles VALUES ('ROLE_ADMIN'), ('ROLE_MANAGER'), ('ROLE_USER');
 
-# === USER_ROLES (유저-권한 매핑) === #
 CREATE TABLE user_roles (
 	id BIGINT AUTO_INCREMENT PRIMARY KEY,
     user_id BIGINT NOT NULL,
     role_name VARCHAR(30) NOT NULL,
-    
     UNIQUE KEY `uk_user_roles_user_id_role_name` (user_id, role_name),
     INDEX `idx_user_roles_user_id` (user_id),
     INDEX `idx_user_roles_role_name` (role_name),
-    
     CONSTRAINT `fk_user_role_user` FOREIGN KEY (user_id) REFERENCES users(id),
     CONSTRAINT `fk_user_role_role` FOREIGN KEY (role_name) REFERENCES roles(role_name)
 )
-	ENGINE=InnoDB
-    DEFAULT CHARSET = utf8mb4
-    COLLATE = utf8mb4_unicode_ci
-    COMMENT = '유저-권한 매핑 테이블';
-    
--- ---- Seed USER_ROLES
+ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 INSERT INTO user_roles (user_id, role_name) VALUES
 (1, 'ROLE_ADMIN'),
-(2, 'ROLE_MANAGER'),
-(3, 'ROLE_MANAGER'),
-(4, 'ROLE_MANAGER'),
-(5, 'ROLE_MANAGER'),
-(6, 'ROLE_MANAGER'),
-(7, 'ROLE_MANAGER'),
-(8, 'ROLE_USER'),
-(9, 'ROLE_USER'),
-(10, 'ROLE_USER'),
-(11, 'ROLE_USER'),
-(12, 'ROLE_USER'),
-(13, 'ROLE_USER'),
-(14, 'ROLE_USER'),
-(15, 'ROLE_USER');
+(2, 'ROLE_MANAGER'), (3, 'ROLE_MANAGER'), (4, 'ROLE_MANAGER'), (5, 'ROLE_MANAGER'),
+(6, 'ROLE_MANAGER'), (7, 'ROLE_MANAGER'),
+(8, 'ROLE_USER'), (9, 'ROLE_USER'), (10, 'ROLE_USER'),
+(11, 'ROLE_USER'), (12, 'ROLE_USER'), (13, 'ROLE_USER'),
+(14, 'ROLE_USER'), (15, 'ROLE_USER');
 
-# === REFRESH TOKENS (1:1 관계) === #
+# =====================
+# 4️⃣ Refresh Tokens
+# =====================
 CREATE TABLE refresh_tokens (
 	id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    user_id BIGINT NOT NULL UNIQUE COMMENT '사용자 ID',
-    token VARCHAR(350) NOT NULL COMMENT '리프레시 토큰 값',
-    expiry DATETIME(6) NOT NULL COMMENT '만료 시간',
-    
+    user_id BIGINT NOT NULL UNIQUE,
+    token VARCHAR(350) NOT NULL,
+    expiry DATETIME(6) NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-    
     INDEX `idx_refresh_token_user_id` (user_id),
-    
     CONSTRAINT `fk_refresh_token_user` FOREIGN KEY (user_id) REFERENCES users(id)
 )
-	ENGINE=InnoDB
-    DEFAULT CHARSET = utf8mb4
-    COLLATE = utf8mb4_unicode_ci
-    COMMENT = '리프레시 토큰 저장 테이블';
-    
--- ---- Seed Refresh Tokens (5개)
-INSERT INTO refresh_tokens (user_id, token, expiry, created_at, updated_at)
-VALUES
+ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO refresh_tokens (user_id, token, expiry, created_at, updated_at) VALUES
 (1, 'sampletoken_admin', DATE_ADD(NOW(), INTERVAL 30 DAY), NOW(), NOW()),
 (2, 'sampletoken_u1', DATE_ADD(NOW(), INTERVAL 30 DAY), NOW(), NOW()),
 (3, 'sampletoken_u2', DATE_ADD(NOW(), INTERVAL 30 DAY), NOW(), NOW()),
 (4, 'sampletoken_u3', DATE_ADD(NOW(), INTERVAL 30 DAY), NOW(), NOW()),
 (5, 'sampletoken_u4', DATE_ADD(NOW(), INTERVAL 30 DAY), NOW(), NOW());
 
-# === Board / Category (게시판 / 게시판 카테고리) === #
-DROP TABLE IF EXISTS boards;
-DROP TABLE IF EXISTS board_categories;
-
+# =====================
+# 5️⃣ 게시판 / 카테고리
+# =====================
 CREATE TABLE board_categories (
 	id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(50) NOT NULL COMMENT '카테고리명',
-    
+    name VARCHAR(50) NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-    
     CONSTRAINT `uk_board_category_name` UNIQUE (name)
 )
-	ENGINE=InnoDB
-    DEFAULT CHARSET = utf8mb4
-    COLLATE = utf8mb4_unicode_ci
-    COMMENT = '게시판 카테고리';
+ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ---- Seed Categories (10개)
 INSERT INTO board_categories (name, created_at, updated_at) VALUES
 ('공지사항', NOW(), NOW()),
 ('자유게시판', NOW(), NOW()),
@@ -171,31 +164,21 @@ INSERT INTO board_categories (name, created_at, updated_at) VALUES
 
 CREATE TABLE boards (
 	id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    
-    title VARCHAR(150) NOT NULL COMMENT '글 제목',
-    content LONGTEXT NOT NULL COMMENT '글 제목',
-    
-    view_count BIGINT NOT NULL DEFAULT 0 COMMENT '조회수',
-    is_pinned BOOLEAN NOT NULL DEFAULT FALSE COMMENT '상단 고정 여부',
-    
-    user_id BIGINT NOT NULL COMMENT '작성자',
-    category_id BIGINT NOT NULL COMMENT '카테고리 ID',
-    
+    title VARCHAR(150) NOT NULL,
+    content LONGTEXT NOT NULL,
+    view_count BIGINT NOT NULL DEFAULT 0,
+    is_pinned BOOLEAN NOT NULL DEFAULT FALSE,
+    user_id BIGINT NOT NULL,
+    category_id BIGINT NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-    
     INDEX `idx_boards_created_at` (created_at),
     INDEX `idx_boards_updated_at` (updated_at),
-    
     CONSTRAINT `fk_board_user` FOREIGN KEY (user_id) REFERENCES users(id),
     CONSTRAINT `fk_board_category` FOREIGN KEY (category_id) REFERENCES board_categories(id)
 )
-	ENGINE=InnoDB
-    DEFAULT CHARSET = utf8mb4
-    COLLATE = utf8mb4_unicode_ci
-    COMMENT = '게시글';
-    
--- ---- Seed Boards (15개)
+ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 INSERT INTO boards (title, content, view_count, is_pinned, user_id, category_id, created_at, updated_at)
 VALUES
 ('공지: 서버 유지보수 안내', '내일 새벽 서버 점검합니다.', 100, TRUE, 1, 1, NOW(), NOW()),
@@ -213,32 +196,38 @@ VALUES
 ('유머1', 'ㅋㅋㅋㅋ', 22, FALSE, 13, 4, NOW(), NOW()),
 ('유머2', '하하하', 30, FALSE, 14, 4, NOW(), NOW()),
 ('스프링 정보', 'Bean Scope 정리', 10, FALSE, 15, 8, NOW(), NOW());
-    
-# === Comment (게시글 댓글) === #
+
+# =====================
+# 6️⃣ 게시글 파일 매핑
+# =====================
+CREATE TABLE board_files (
+	id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    board_id BIGINT NOT NULL,
+    file_id BIGINT NOT NULL,
+    display_order INT DEFAULT 0,
+    CONSTRAINT `fk_board_files_board` FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE,
+    CONSTRAINT `fk_board_files_file_info` FOREIGN KEY (file_id) REFERENCES file_infos(id) ON DELETE CASCADE
+)
+ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+# =====================
+# 7️⃣ 댓글 / 좋아요 / 임시글
+# =====================
 CREATE TABLE comments (
 	id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    content LONGTEXT NOT NULL COMMENT '댓글 내용',
-    
-    board_id BIGINT NOT NULL COMMENT '게시글 ID',
-    user_id BIGINT NOT NULL COMMENT '작성자 ID',
-    
+    content LONGTEXT NOT NULL,
+    board_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-    
     INDEX `idx_comments_board_id` (board_id),
     INDEX `idx_comments_user_id` (user_id),
-    
     CONSTRAINT `fk_comment_board` FOREIGN KEY (board_id) REFERENCES boards(id),
     CONSTRAINT `fk_comment_user` FOREIGN KEY (user_id) REFERENCES users(id)
 )
-	ENGINE=InnoDB
-    DEFAULT CHARSET = utf8mb4
-    COLLATE = utf8mb4_unicode_ci
-    COMMENT = '게시글 댓글';
+ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ---- Seed Comments (15개)
-INSERT INTO comments (content, board_id, user_id, created_at, updated_at)
-VALUES
+INSERT INTO comments (content, board_id, user_id, created_at, updated_at) VALUES
 ('좋은 정보 감사합니다!', 1, 2, NOW(), NOW()),
 ('환영합니다!', 2, 3, NOW(), NOW()),
 ('저도 궁금합니다.', 3, 4, NOW(), NOW()),
@@ -254,32 +243,22 @@ VALUES
 ('웃기네요', 13, 14, NOW(), NOW()),
 ('ㅋㅋ', 14, 15, NOW(), NOW()),
 ('유용한 글이네요', 15, 1, NOW(), NOW());
-    
-# === BoardLike (게시글 좋아요) === #
+
 CREATE TABLE board_likes (
 	id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    
-    board_id BIGINT NOT NULL COMMENT '게시글 ID',
-    user_id BIGINT NOT NULL COMMENT '작성자 ID',
-    
+    board_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-    
     UNIQUE KEY `uk_board_like_user` (board_id, user_id),
     INDEX `idx_board_like_board` (board_id),
     INDEX `idx_board_like_user` (user_id),
-    
     CONSTRAINT `fk_board_like_board` FOREIGN KEY (board_id) REFERENCES boards(id),
     CONSTRAINT `fk_board_like_user` FOREIGN KEY (user_id) REFERENCES users(id)
 )
-	ENGINE=InnoDB
-    DEFAULT CHARSET = utf8mb4
-    COLLATE = utf8mb4_unicode_ci
-    COMMENT = '게시글 좋아요';
-    
--- ---- Seed Likes (15개)
-INSERT INTO board_likes (board_id, user_id, created_at, updated_at)
-VALUES
+ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO board_likes (board_id, user_id, created_at, updated_at) VALUES
 (1, 2, NOW(), NOW()),
 (1, 3, NOW(), NOW()),
 (2, 4, NOW(), NOW()),
@@ -296,31 +275,20 @@ VALUES
 (13, 15, NOW(), NOW()),
 (14, 1, NOW(), NOW());
 
-# === BoardDraft (게시글 임시저장) === #
 CREATE TABLE board_drafts (
 	id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    
-    title VARCHAR(150) NULL COMMENT '임시 제목',
-    content LONGTEXT NULL COMMENT '임시 내용',
-    
-    user_id BIGINT NOT NULL,   
-    
+    title VARCHAR(150),
+    content LONGTEXT,
+    user_id BIGINT NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-    
     INDEX `idx_board_drafts_user_id` (user_id),
     INDEX `idx_board_drafts_updated_at` (updated_at),
-    
     CONSTRAINT `fk_board_draft_user` FOREIGN KEY (user_id) REFERENCES users(id)
 )
-	ENGINE=InnoDB
-    DEFAULT CHARSET = utf8mb4
-    COLLATE = utf8mb4_unicode_ci
-    COMMENT = '게시글 임시 저장';
+ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ---- Seed Drafts (10개)
-INSERT INTO board_drafts (title, content, user_id, created_at, updated_at)
-VALUES
+INSERT INTO board_drafts (title, content, user_id, created_at, updated_at) VALUES
 ('임시글1', '아직 작성중', 2, NOW(), NOW()),
 ('임시글2', '임시 내용', 3, NOW(), NOW()),
 ('임시글3', '내용 적는중', 4, NOW(), NOW()),
