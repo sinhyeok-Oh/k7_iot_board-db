@@ -45,20 +45,25 @@ CREATE TABLE users (
 	id BIGINT AUTO_INCREMENT PRIMARY KEY,
     
     username VARCHAR(50) NOT NULL COMMENT '로그인 ID',
-    password VARCHAR(255) NOT NULL COMMENT 'Bcrypt 암호화 비밀번호',
+    password VARCHAR(255) NULL COMMENT 'Bcrypt 암호화 비밀번호, 로컬 계정만 사용(소셜 계정은 NULL)',
     email VARCHAR(255) NOT NULL COMMENT '사용자 이메일',
     nickname VARCHAR(50) NOT NULL COMMENT '닉네임',
     
     gender VARCHAR(10) COMMENT '성별',
     profile_file_id BIGINT NULL COMMENT '프로필 이미지 파일 ID',
     
+    provider VARCHAR(20) NOT NULL,
+    provider_id VARCHAR(100),
+    email_verified BOOLEAN NOT NULL,
+    
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     
     CONSTRAINT `uk_users_username` UNIQUE(username),
-    CONSTRAINT `uk_users_email` UNIQUE(email),
-    CONSTRAINT `uk_users_nickname` UNIQUE(nickname),
+    CONSTRAINT `uk_users_provider_provider_id` UNIQUE(provider, provider_id),
     CONSTRAINT `chk_users_gender` CHECK(gender IN ('MALE', 'FEMALE', 'OTHER', 'NONE')),
+    CONSTRAINT `chk_users_provider` CHECK(provider IN ('LOCAL', 'GOOGLE', 'KAKAO', 'NAVER')),
+    
     CONSTRAINT `fk_users_profile_file` FOREIGN KEY (profile_file_id) REFERENCES file_infos(id) ON DELETE SET NULL
 )
 	ENGINE=InnoDB
@@ -69,12 +74,16 @@ CREATE TABLE users (
 # === ROLES (권한) === #
 CREATE TABLE roles (
 	role_name VARCHAR(30) PRIMARY KEY,
-    CONSTRAINT `chk_roles_role_name` CHECK(role_name IN ('ROLE_USER', 'ROLE_ADMIN', 'ROLE_MANAGER'))
+    CONSTRAINT `chk_roles_role_name` CHECK(role_name IN ('USER', 'ADMIN', 'MANAGER'))
 )
 	ENGINE=InnoDB
     DEFAULT CHARSET = utf8mb4
     COLLATE = utf8mb4_unicode_ci
     COMMENT = '사용자 권한 테이블';
+    
+INSERT INTO roles
+VALUES
+	("USER"), ("ADMIN"), ("MANAGER");
 
 # === USER_ROLES (유저-권한 매핑) === #
 CREATE TABLE user_roles (
